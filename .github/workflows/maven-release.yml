@@ -49,6 +49,11 @@
             - 'central'
           required: true
           default: 'central'
+        mvn-args:
+          description: 'Additional maven arguments to pass (e.g. -DskipTests=true -Dmaven.javadoc.skip=true)'
+          required: false
+          default: ''
+          type: string
   permissions:
     contents: write
     packages: write
