@@ -1,96 +1,52 @@
 ---
 
-# This GitHub Actions workflow is designed to be triggered when a release is marked as a full release.
-# The workflow performs the following tasks:
-# - Extract Release Version: Extracts the tag name and removes the leading 'v' character to get the release version.
-# - Update pom.xml: Updates the version in the pom.xml file using the extracted release version.
-# - Publish to Maven: Publishes the artifact to the Maven repository using the updated pom.xml.
-
-# To make it work for your project, you need to adjust the pom.xml and add configuration file for GitHub release.
-# Please find detailed instructions:
-# https://github.com/Netcracker/qubership-workflow-hub?tab=readme-ov-file#maven-project-release-workflow
-
-name: Release And Upload to Maven Central
-
-on:
-  workflow_dispatch:
-    inputs:
-      version:
-        required: true
-        default: ''
-        type: string
-        description: 'Release version (e.g., 1.0.0)'
-      java_version:
-        required: false
-        type: string
-        default: "21"
-        description: 'Java version (e.g., 21)'
-
-jobs:
-  check-tag:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Input parameters
-        run: |
-          echo "Version: ${{ github.event.inputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "Java version: ${{ github.event.inputs.java_version }}" >> $GITHUB_STEP_SUMMARY
-
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Check if tag exists
-        id: check_tag
-        uses: netcracker/qubership-workflow-hub/actions/tag-checker@main
-        with:
-          tag: 'v${{ github.event.inputs.version }}'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Output result
-        run: |
-          echo "Tag exists: ${{ steps.check_tag.outputs.exists }}"
-          echo "Tag name: v${{ github.event.inputs.version }}"
-
-      - name: Fail if tag exists
-        if: steps.check_tag.outputs.exists == 'true'
-        run: |
-          echo "Tag already exists: v${{ github.event.inputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "Tag already exists: v${{ github.event.inputs.version }}"
-          exit 1
-
-  update-pom-version:
-    needs: [check-tag]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Update pom.xml
-        uses: Netcracker/qubership-workflow-hub/actions/pom-updater@main
-        with:
-          new_value: ${{ github.event.inputs.version }}
-      - name: Commit Changes
-        uses: Netcracker/qubership-workflow-hub/actions/commit-and-push@main
-        with:
-          commit_message: "Update pom.xml version to ${{ github.event.inputs.version }}"
-
-  upload_to_maven_central:
-    needs: [update-pom-version]
-    uses: Netcracker/qubership-workflow-hub/.github/workflows/maven-publish.yml@main
-    with:
-      maven_command: "--batch-mode deploy"
-      java_version: ${{ github.event.inputs.java_version }}
-      version: ${{ github.event.inputs.version }}
-    secrets:
-      maven_username: ${{ secrets.MAVEN_USER }}
-      maven_password: ${{ secrets.MAVEN_PASSWORD }}
-      maven_gpg_passphrase: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
-      maven_gpg_private_key: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
-
-  github-release:
-    needs: [upload_to_maven_central]
-    uses: Netcracker/qubership-workflow-hub/.github/workflows/release-drafter.yml@main
-    with:
-      version: ${{ github.event.inputs.version }}
-      publish: false
+  name: Maven release V2
+  description: 'Release Maven artifact and publish to GitHub Packages or Maven Central'
+  run-name: ${{ github.event.inputs.version-type }} release for ${{ github.event.repository.name }}
+  
+  on:
+    workflow_dispatch:
+      inputs:
+        version-type:
+          description: 'Version type to release'
+          type: choice
+          options:
+            - 'major'
+            - 'minor'
+            - 'patch'
+          required: true
+          default: 'patch'
+        profile:
+          description: 'Maven profile to use'
+          type: choice
+          options:
+            - 'github'
+            - 'central'
+          required: false
+          default: 'github'
+        mvn-args:
+          description: 'Additional maven arguments to pass (e.g. -DskipTests=true -Dmaven.javadoc.skip=true)'
+          required: false
+          default: ''
+          type: string
+  
+  permissions:
+    contents: write
+    packages: write
+  
+  jobs:
+    dry-run-build:
+      runs-on: ubuntu-latest
+      steps:
+        - name: "Build and Publish"
+          uses: netcracker/qubership-workflow-hub/actions/maven-release@main
+          with:
+            version-type: ${{ github.event.inputs.version-type }}
+            module: ${{ github.event.repository.name }}
+            ref: ${{ github.ref }}
+            maven-args: ${{ inputs.mvn-args }}
+            profile: ${{ inputs.profile }}
+            token: ${{ secrets.GITHUB_TOKEN }}
+            gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
+            gpg-passphrase: ${{ secrets.GPG_PASSPHRASE }}
+            dry-run: 'true'
